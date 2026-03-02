@@ -8,7 +8,9 @@ var _server: TCPServer
 var _client: StreamPeerTCP
 var _buffer: String = ""
 var _busy: bool = false
+var _busy_since: float = 0.0
 const PORT: int = 9090
+const BUSY_TIMEOUT: float = 30.0
 
 func _ready() -> void:
 	# Ensure MCP server keeps processing even when game is paused
@@ -24,6 +26,14 @@ func _ready() -> void:
 func _process(_delta: float) -> void:
 	if _server == null:
 		return
+
+	# Safety timeout: force-reset _busy if it's been stuck too long
+	if _busy and _busy_since > 0.0:
+		var elapsed: float = Time.get_ticks_msec() / 1000.0 - _busy_since
+		if elapsed > BUSY_TIMEOUT:
+			push_warning("McpInteractionServer: _busy flag stuck for %.1fs, force-resetting" % elapsed)
+			_busy = false
+			_busy_since = 0.0
 
 	# Accept new connections
 	if _server.is_connection_available():
@@ -71,6 +81,7 @@ func _handle_command(json_str: String) -> void:
 		_send_response_raw({"error": "Server busy processing another command. Try again."})
 		return
 	_busy = true
+	_busy_since = Time.get_ticks_msec() / 1000.0
 
 	var json: JSON = JSON.new()
 	var parse_err: int = json.parse(json_str)
@@ -146,6 +157,7 @@ func _handle_command(json_str: String) -> void:
 # Send response and clear busy flag
 func _send_response(data: Dictionary) -> void:
 	_busy = false
+	_busy_since = 0.0
 	_send_response_raw(data)
 
 
