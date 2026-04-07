@@ -565,6 +565,7 @@ The server uses two communication channels:
 ## Maintenance
 
 - Upstream sync workflow: `docs/upstream-sync.md`
+- Downstream sync script: `scripts/sync-downstream.ps1`
 - For Godot projects that keep local plugin metadata or project-specific MCP docs, prefer vendoring `build/scripts/*.gd` instead of replacing the whole addon directory.
 
 ## Testing
