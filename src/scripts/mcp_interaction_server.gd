@@ -1237,6 +1237,18 @@ func _cmd_key_hold(params: Dictionary) -> void:
 	var key: String = params.get("key", "")
 
 	if action.length() > 0:
+		var guide_binding := _resolve_guide_binding_for_action(action)
+		if not guide_binding.is_empty():
+			_inject_guide_binding_event(guide_binding, true)
+			_held_keys["guide_action:" + action] = guide_binding
+			_send_response({
+				"success": true,
+				"held": action,
+				"type": "guide_action",
+				"binding": guide_binding,
+			})
+			return
+
 		Input.action_press(action)
 		_held_keys["action:" + action] = true
 		_send_response({"success": true, "held": action, "type": "action"})
@@ -1265,6 +1277,19 @@ func _cmd_key_release(params: Dictionary) -> void:
 	var key: String = params.get("key", "")
 
 	if action.length() > 0:
+		var guide_hold_key := "guide_action:" + action
+		if _held_keys.has(guide_hold_key):
+			var guide_binding: Dictionary = _held_keys[guide_hold_key]
+			_inject_guide_binding_event(guide_binding, false)
+			_held_keys.erase(guide_hold_key)
+			_send_response({
+				"success": true,
+				"released": action,
+				"type": "guide_action",
+				"binding": guide_binding,
+			})
+			return
+
 		Input.action_release(action)
 		_held_keys.erase("action:" + action)
 		_send_response({"success": true, "released": action, "type": "action"})
@@ -1285,6 +1310,88 @@ func _cmd_key_release(params: Dictionary) -> void:
 		return
 
 	_send_response({"error": "Must provide 'key' or 'action' parameter"})
+
+
+func _resolve_guide_binding_for_action(action_name: String) -> Dictionary:
+	var guide := get_node_or_null("/root/GUIDE")
+	if guide == null or not guide.has_method("get_enabled_mapping_contexts"):
+		return {}
+
+	var contexts: Array = guide.get_enabled_mapping_contexts()
+	for context in contexts:
+		if not is_instance_valid(context):
+			continue
+		for action_mapping in context.mappings:
+			if action_mapping == null or action_mapping.action == null:
+				continue
+			if String(action_mapping.action.name) != action_name:
+				continue
+
+			var binding := _resolve_supported_binding_from_action_mapping(action_mapping)
+			if not binding.is_empty():
+				return binding
+
+	return {}
+
+
+func _resolve_supported_binding_from_action_mapping(action_mapping) -> Dictionary:
+	for input_mapping in action_mapping.input_mappings:
+		if input_mapping == null or input_mapping.input == null:
+			continue
+
+		var input = input_mapping.input
+		if input is GUIDEInputKey:
+			return {
+				"kind": "key",
+				"keycode": int(input.key),
+				"physical_keycode": int(input.key),
+				"shift": input.shift,
+				"ctrl": input.control,
+				"alt": input.alt,
+				"meta": input.meta,
+			}
+		if input is GUIDEInputMouseButton:
+			return {
+				"kind": "mouse_button",
+				"button_index": int(input.button),
+			}
+		if input is GUIDEInputJoyButton:
+			return {
+				"kind": "joy_button",
+				"button_index": int(input.button),
+				"device": int(input.joy_index),
+			}
+
+	return {}
+
+
+func _inject_guide_binding_event(binding: Dictionary, pressed: bool) -> void:
+	match String(binding.get("kind", "")):
+		"key":
+			var key_event := InputEventKey.new()
+			key_event.keycode = int(binding.get("keycode", KEY_NONE)) as Key
+			key_event.physical_keycode = int(binding.get("physical_keycode", key_event.keycode)) as Key
+			key_event.shift_pressed = bool(binding.get("shift", false))
+			key_event.ctrl_pressed = bool(binding.get("ctrl", false))
+			key_event.alt_pressed = bool(binding.get("alt", false))
+			key_event.meta_pressed = bool(binding.get("meta", false))
+			key_event.pressed = pressed
+			Input.parse_input_event(key_event)
+		"mouse_button":
+			var mouse_event := InputEventMouseButton.new()
+			var mouse_pos := get_viewport().get_mouse_position()
+			mouse_event.position = mouse_pos
+			mouse_event.global_position = mouse_pos
+			mouse_event.button_index = int(binding.get("button_index", MOUSE_BUTTON_LEFT)) as MouseButton
+			mouse_event.pressed = pressed
+			Input.parse_input_event(mouse_event)
+		"joy_button":
+			var joy_event := InputEventJoypadButton.new()
+			joy_event.device = int(binding.get("device", 0))
+			joy_event.button_index = int(binding.get("button_index", JOY_BUTTON_A)) as JoyButton
+			joy_event.pressed = pressed
+			joy_event.pressure = 1.0 if pressed else 0.0
+			Input.parse_input_event(joy_event)
 
 
 # --- Scroll ---
